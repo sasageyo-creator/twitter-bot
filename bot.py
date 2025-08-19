@@ -1,83 +1,71 @@
 import tweepy
-import requests
 import os
 import time
-from datetime import datetime, timedelta
+import random
 
-# --- Load environment variables ---
+# Load credentials from environment variables
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 ACCESS_SECRET = os.getenv("ACCESS_SECRET")
-HF_TOKEN = os.getenv("HF_TOKEN")  # Hugging Face API token
 
-# --- Authenticate with Twitter ---
-auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
-api = tweepy.API(auth)
+# Debugging: check if keys are loaded
+print("API_KEY loaded:", API_KEY is not None)
+print("API_SECRET loaded:", API_SECRET is not None)
+print("ACCESS_TOKEN loaded:", ACCESS_TOKEN is not None)
+print("ACCESS_SECRET loaded:", ACCESS_SECRET is not None)
 
-# --- Hugging Face Inference API ---
-HF_API_URL = "https://api-inference.huggingface.co/models/gpt2"
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+# Exit early if any key is missing
+if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET]):
+    raise ValueError("❌ One or more Twitter API keys are missing. Please check your environment variables.")
 
-def generate_reply(text):
-    """Generate AI-based reply using Hugging Face GPT-2"""
-    payload = {"inputs": text}
-    try:
-        response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=20)
-        if response.status_code == 200:
-            data = response.json()
-            return data[0]["generated_text"][:200]  # Limit to 200 chars
-        else:
-            return "Thanks for mentioning me!"
-    except Exception as e:
-        print("⚠️ HuggingFace error:", e)
-        return "Thanks for the mention!"
+# Authenticate with Twitter
+auth = tweepy.OAuthHandler(API_KEY, API_SECRET)
+auth.set_access_token(ACCESS_TOKEN, ACCESS_SECRET)
+api = tweepy.API(auth, wait_on_rate_limit=True)
 
-# --- Bot Setup ---
-last_seen_id = None
-start_time = datetime.now()
-end_time = start_time + timedelta(hours=24)  # Stop after 24 hours
+print("✅ Bot is running...")
 
-print("🤖 Bot started... Trial mode: 24h")
+# Function to generate a simple AI-like reply
+def generate_reply(tweet_text):
+    replies = [
+        "Thanks for sharing your thoughts!",
+        "Interesting perspective! 🤔",
+        "Totally agree with this 👍",
+        "I hadn’t thought of it that way before.",
+        "Great point!"
+    ]
+    return random.choice(replies)
 
-# --- Bot Loop ---
+# Stream Listener
+class MyStreamListener(tweepy.StreamListener):
+    def on_status(self, status):
+        try:
+            print(f"👀 New tweet from @{status.user.screen_name}: {status.text}")
+            
+            # Like
+            api.create_favorite(status.id)
+            print("❤️ Liked the tweet")
+
+            # Retweet
+            api.retweet(status.id)
+            print("🔁 Retweeted the tweet")
+
+            # Reply
+            reply_text = f"@{status.user.screen_name} {generate_reply(status.text)}"
+            api.update_status(status=reply_text, in_reply_to_status_id=status.id)
+            print("💬 Replied to the tweet")
+
+        except Exception as e:
+            print("Error:", e)
+
+# Run the stream (listening for mentions)
 while True:
     try:
-        # --- Stop after 24 hours ---
-        if datetime.now() >= end_time:
-            print("⏹️ Trial finished. Bot shutting down.")
-            break
-
-        # --- Check mentions ---
-        mentions = api.mentions_timeline(since_id=last_seen_id, tweet_mode="extended")
-        for mention in reversed(mentions):
-            print(f"📌 New mention: {mention.user.screen_name} - {mention.full_text}")
-            last_seen_id = mention.id
-
-            # Auto like
-            try:
-                api.create_favorite(mention.id)
-                print("❤️ Liked")
-            except:
-                print("❤️ Already liked")
-
-            # Auto retweet
-            try:
-                api.retweet(mention.id)
-                print("🔁 Retweeted")
-            except:
-                print("🔁 Already retweeted")
-
-            # Auto reply with AI
-            reply_text = generate_reply(mention.full_text)
-            api.update_status(
-                status=f"@{mention.user.screen_name} {reply_text}",
-                in_reply_to_status_id=mention.id
-            )
-            print("💬 Replied")
-
-        time.sleep(30)  # wait 30s before checking again
-
+        print("🚀 Starting stream...")
+        myStreamListener = MyStreamListener()
+        myStream = tweepy.Stream(auth=api.auth, listener=myStreamListener)
+        myStream.filter(track=["@YourTwitterHandle"], is_async=False)
     except Exception as e:
-        print("⚠️ Error:", e)
-        time.sleep(60)  # wait before retry
+        print("Stream crashed, restarting in 15s. Error:", e)
+        time.sleep(15)
