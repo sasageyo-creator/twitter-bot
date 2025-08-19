@@ -1,71 +1,61 @@
-import tweepy
 import os
-import time
-import random
+import tweepy
 
-# Load credentials from environment variables
+# 🔑 Load Twitter API keys from environment variables
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 ACCESS_SECRET = os.getenv("ACCESS_SECRET")
+BEARER_TOKEN = os.getenv("BEARER_TOKEN")  # Required for StreamingClient
 
-# Debugging: check if keys are loaded
-print("API_KEY loaded:", API_KEY is not None)
-print("API_SECRET loaded:", API_SECRET is not None)
-print("ACCESS_TOKEN loaded:", ACCESS_TOKEN is not None)
-print("ACCESS_SECRET loaded:", ACCESS_SECRET is not None)
+if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET, BEARER_TOKEN]):
+    raise ValueError("❌ Missing one or more Twitter API keys. Check your environment variables.")
 
-# Exit early if any key is missing
-if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET]):
-    raise ValueError("❌ One or more Twitter API keys are missing. Please check your environment variables.")
+# ✅ Authenticate with Twitter API v1.1 (needed for likes, retweets, replies)
+auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
+api = tweepy.API(auth)
 
-# Authenticate with Twitter
-auth = tweepy.OAuthHandler(API_KEY, API_SECRET)
-auth.set_access_token(ACCESS_TOKEN, ACCESS_SECRET)
-api = tweepy.API(auth, wait_on_rate_limit=True)
+# ✅ StreamingClient for real-time tweets
+class MyStream(tweepy.StreamingClient):
+    def on_tweet(self, tweet):
+        print(f"🐦 New Tweet: {tweet.text}")
 
-print("✅ Bot is running...")
-
-# Function to generate a simple AI-like reply
-def generate_reply(tweet_text):
-    replies = [
-        "Thanks for sharing your thoughts!",
-        "Interesting perspective! 🤔",
-        "Totally agree with this 👍",
-        "I hadn’t thought of it that way before.",
-        "Great point!"
-    ]
-    return random.choice(replies)
-
-# Stream Listener
-class MyStreamListener(tweepy.StreamListener):
-    def on_status(self, status):
         try:
-            print(f"👀 New tweet from @{status.user.screen_name}: {status.text}")
-            
-            # Like
-            api.create_favorite(status.id)
-            print("❤️ Liked the tweet")
+            # ❤️ Like
+            api.create_favorite(tweet.id)
+            print("💙 Liked")
 
-            # Retweet
-            api.retweet(status.id)
-            print("🔁 Retweeted the tweet")
+            # 🔁 Retweet
+            api.retweet(tweet.id)
+            print("🔁 Retweeted")
 
-            # Reply
-            reply_text = f"@{status.user.screen_name} {generate_reply(status.text)}"
-            api.update_status(status=reply_text, in_reply_to_status_id=status.id)
-            print("💬 Replied to the tweet")
+            # 💬 Reply
+            reply_text = "This is an automated reply 👋"
+            api.update_status(
+                status=reply_text,
+                in_reply_to_status_id=tweet.id,
+                auto_populate_reply_metadata=True
+            )
+            print("💬 Replied")
 
         except Exception as e:
-            print("Error:", e)
+            print(f"⚠️ Error handling tweet: {e}")
 
-# Run the stream (listening for mentions)
-while True:
-    try:
-        print("🚀 Starting stream...")
-        myStreamListener = MyStreamListener()
-        myStream = tweepy.Stream(auth=api.auth, listener=myStreamListener)
-        myStream.filter(track=["@YourTwitterHandle"], is_async=False)
-    except Exception as e:
-        print("Stream crashed, restarting in 15s. Error:", e)
-        time.sleep(15)
+# ✅ Run bot
+if __name__ == "__main__":
+    print("🤖 Bot is running...")
+
+    # Create stream
+    stream = MyStream(bearer_token=BEARER_TOKEN)
+
+    # Remove old rules (avoid duplicates)
+    rules = stream.get_rules()
+    if rules.data:
+        rule_ids = [rule.id for rule in rules.data]
+        stream.delete_rules(rule_ids)
+
+    # Add tracking rule (edit this keyword)
+    stream.add_rules(tweepy.StreamRule("python"))  # 🔑 Change "python" to what you want
+
+    # Start stream
+    stream.filter(tweet_fields=["referenced_tweets", "author_id"])
