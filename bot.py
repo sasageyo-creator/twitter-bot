@@ -1,61 +1,59 @@
-import os
 import tweepy
+import os
+import time
 
-# 🔑 Load Twitter API keys from environment variables
+# Load keys from Render Environment
+BEARER_TOKEN = os.getenv("BEARER_TOKEN")
 API_KEY = os.getenv("API_KEY")
 API_SECRET = os.getenv("API_SECRET")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 ACCESS_SECRET = os.getenv("ACCESS_SECRET")
-BEARER_TOKEN = os.getenv("BEARER_TOKEN")  # Required for StreamingClient
 
-if not all([API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET, BEARER_TOKEN]):
-    raise ValueError("❌ Missing one or more Twitter API keys. Check your environment variables.")
+# Authenticate
+client = tweepy.Client(
+    bearer_token=BEARER_TOKEN,
+    consumer_key=API_KEY,
+    consumer_secret=API_SECRET,
+    access_token=ACCESS_TOKEN,
+    access_token_secret=ACCESS_SECRET
+)
 
-# ✅ Authenticate with Twitter API v1.1 (needed for likes, retweets, replies)
-auth = tweepy.OAuth1UserHandler(API_KEY, API_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
-api = tweepy.API(auth)
+print("✅ Keys loaded successfully")
 
-# ✅ StreamingClient for real-time tweets
+# Example stream listener
 class MyStream(tweepy.StreamingClient):
     def on_tweet(self, tweet):
-        print(f"🐦 New Tweet: {tweet.text}")
-
         try:
-            # ❤️ Like
-            api.create_favorite(tweet.id)
-            print("💙 Liked")
+            # Auto-like
+            client.like(tweet.id)
+            print(f"❤️ Liked tweet {tweet.id}")
 
-            # 🔁 Retweet
-            api.retweet(tweet.id)
-            print("🔁 Retweeted")
+            # Auto-retweet
+            client.retweet(tweet.id)
+            print(f"🔁 Retweeted {tweet.id}")
 
-            # 💬 Reply
-            reply_text = "This is an automated reply 👋"
-            api.update_status(
-                status=reply_text,
-                in_reply_to_status_id=tweet.id,
-                auto_populate_reply_metadata=True
+            # Auto-reply
+            client.create_tweet(
+                text="Thanks for tweeting! 🤖",
+                in_reply_to_tweet_id=tweet.id
             )
-            print("💬 Replied")
+            print(f"💬 Replied to {tweet.id}")
 
         except Exception as e:
-            print(f"⚠️ Error handling tweet: {e}")
+            print(f"⚠️ Error handling tweet {tweet.id}: {e}")
 
-# ✅ Run bot
-if __name__ == "__main__":
-    print("🤖 Bot is running...")
-
-    # Create stream
+def main():
+    print("🚀 Bot is starting...")
     stream = MyStream(bearer_token=BEARER_TOKEN)
 
-    # Remove old rules (avoid duplicates)
-    rules = stream.get_rules()
-    if rules.data:
-        rule_ids = [rule.id for rule in rules.data]
-        stream.delete_rules(rule_ids)
+    # Add your filter rule (change keywords/hashtags)
+    try:
+        stream.add_rules(tweepy.StreamRule("python"))
+    except Exception:
+        pass  # Ignore if rule already exists
 
-    # Add tracking rule (edit this keyword)
-    stream.add_rules(tweepy.StreamRule("python"))  # 🔑 Change "python" to what you want
+    print("🤖 Bot is now live and listening for tweets!")
+    stream.filter(threaded=False)  # blocking, keeps running
 
-    # Start stream
-    stream.filter(tweet_fields=["referenced_tweets", "author_id"])
+if __name__ == "__main__":
+    main()
